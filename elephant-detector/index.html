@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Person Detector</title>
+  <title>Multi-Class Detector</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <style>
@@ -22,15 +22,18 @@
       left: 0;
       width: 100%;
       text-align: center;
-      padding: 15px;
+      padding: 12px 15px;
       background: #d00000;
       color: #fff;
-      font-size: 20px;
+      font-size: 16px;
       font-weight: 700;
       display: none; /* hidden by default */
       z-index: 9999;
-      letter-spacing: 1px;
+      letter-spacing: 0.5px;
       animation: flash 0.6s infinite alternate;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     @keyframes flash {
       from { opacity: 1; }
@@ -45,6 +48,7 @@
       font-size: 13px;
       border-radius: 4px;
       z-index: 9998;
+      max-width: 80vw;
     }
     #container {
       position: relative;
@@ -69,7 +73,7 @@
 </head>
 <body>
 
-<div id="alert-banner">PERSON DETECTED!</div>
+<div id="alert-banner"></div>
 <div id="status">Initializing…</div>
 
 <div id="container">
@@ -78,8 +82,11 @@
 </div>
 
 <script>
-  // Change this to 'elephant' if you want elephant detection instead
-  const TARGET_CLASS = 'person';
+  // Edit this list to control what you care about
+  // COCO-SSD classes include: person, elephant, dog, car, etc.
+  const TARGET_CLASSES = ['person', 'animal','electronic']; // example: detect people and elephants
+
+  const CONFIDENCE_THRESHOLD = 0.5;
 
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
@@ -126,7 +133,16 @@
   async function loadModel() {
     statusEl.textContent = 'Loading model…';
     model = await cocoSsd.load({ base: 'lite_mobilenet_v2' }); // fast variant for phones
-    statusEl.textContent = `Model loaded. Point camera at a ${TARGET_CLASS}.`;
+    statusEl.textContent = 'Model loaded. Watching for: ' + TARGET_CLASSES.join(', ');
+  }
+
+  function summarizeTargets(targets) {
+    const counts = {};
+    targets.forEach(p => {
+      counts[p.class] = (counts[p.class] || 0) + 1;
+    });
+    const parts = Object.entries(counts).map(([cls, count]) => `${cls}(${count})`);
+    return parts.join(', ');
   }
 
   async function detectFrame() {
@@ -146,9 +162,9 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // Filter only target class (person / elephant, etc.)
+        // Filter only desired classes
         const targets = predictions.filter(
-          p => p.class === TARGET_CLASS && p.score > 0.5
+          p => TARGET_CLASSES.includes(p.class) && p.score > CONFIDENCE_THRESHOLD
         );
 
         // Draw boxes for detected targets
@@ -168,7 +184,7 @@
           const textWidth = ctx.measureText(label).width;
           const textHeight = 20;
 
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.fillStyle = 'rgba(0,0,0,0.7)';
           ctx.fillRect(x, y - textHeight, textWidth + 10, textHeight);
           ctx.fillStyle = '#00FF00';
           ctx.fillText(label, x + 5, y - 5);
@@ -176,12 +192,13 @@
 
         // Show / hide alert banner and status
         if (targets.length > 0) {
-          alertBanner.textContent = `${TARGET_CLASS.toUpperCase()} DETECTED! (${targets.length})`;
+          const summary = summarizeTargets(targets);
+          alertBanner.textContent = 'DETECTED: ' + summary;
           alertBanner.style.display = 'block';
-          statusEl.textContent = `${TARGET_CLASS} detected: ${targets.length}`;
+          statusEl.textContent = 'Detected: ' + summary;
         } else {
           alertBanner.style.display = 'none';
-          statusEl.textContent = `No ${TARGET_CLASS} detected`;
+          statusEl.textContent = 'No target classes detected';
         }
 
       } catch (e) {
@@ -208,7 +225,6 @@
       detectFrame();
     } catch (e) {
       console.error(e);
-      // status already set in setupCamera if error
     }
   }
 
