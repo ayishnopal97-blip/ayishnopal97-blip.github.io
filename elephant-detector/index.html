@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Elephant Detector</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: system-ui, sans-serif;
+      color: #fff;
+    }
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+    }
+    video, canvas {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      max-width: 100%;
+      max-height: 100%;
+    }
+    #status {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.6);
+      font-size: 14px;
+      border-radius: 4px;
+    }
+  </style>
+  <!-- TF.js core + COCO-SSD model -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+</head>
+<body>
+<div id="status">Loading model…</div>
+<div id="container">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+</div>
+
+<script>
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+
+  let model = null;
+  let detecting = false;
+
+  async function setupCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },   // rear camera on phones
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+      video.srcObject = stream;
+
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          video.play();
+          resolve();
+        };
+      });
+    } catch (err) {
+      console.error('Camera error:', err);
+      statusEl.textContent = 'Camera access failed: ' + err.message;
+      throw err;
+    }
+  }
+
+  function resizeCanvasToVideo() {
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) return;
+    canvas.width = w;
+    canvas.height = h;
+  }
+
+  async function loadModel() {
+    model = await cocoSsd.load({ base: 'lite_mobilenet_v2' }); // lighter, better for phones
+    statusEl.textContent = 'Model loaded. Point at elephants!';
+  }
+
+  async function detectFrame() {
+    if (!model || video.readyState !== 4) {
+      requestAnimationFrame(detectFrame);
+      return;
+    }
+
+    if (!detecting) {
+      detecting = true;
+      resizeCanvasToVideo();
+
+      try {
+        const predictions = await model.detect(video);
+
+        // Clear previous drawings
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Filter only elephants
+        const elephants = predictions.filter(p => p.class === 'elephant' && p.score > 0.5);
+
+        elephants.forEach(p => {
+          const [x, y, width, height] = p.bbox;
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#00FF00';
+          ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+
+          // Box
+          ctx.strokeRect(x, y, width, height);
+          ctx.fillRect(x, y, width, height);
+
+          // Label
+          const label = `${p.class} ${(p.score * 100).toFixed(1)}%`;
+          ctx.font = '18px sans-serif';
+          ctx.fillStyle = '#000';
+          ctx.fillRect(x, y - 22, ctx.measureText(label).width + 10, 22);
+          ctx.fillStyle = '#0f0';
+          ctx.fillText(label, x + 5, y - 6);
+        });
+
+        if (elephants.length > 0) {
+          statusEl.textContent = `Elephants detected: ${elephants.length}`;
+        } else {
+          statusEl.textContent = 'No elephants detected';
+        }
+      } catch (e) {
+        console.error(e);
+      }
+
+      detecting = false;
+    }
+
+    requestAnimationFrame(detectFrame);
+  }
+
+  async function main() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      statusEl.textContent = 'getUserMedia not supported on this browser.';
+      return;
+    }
+
+    await setupCamera();
+    await loadModel();
+    detectFrame();
+  }
+
+  main();
+</script>
+</body>
+</html>
